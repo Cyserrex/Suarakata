@@ -210,6 +210,22 @@ namespace Suarakata
             return HumanBytes((long)bytesPerSec) + "/dtk";
         }
 
+        /// <summary>Format ringkas m:ss atau j:mm:ss untuk penghitung waktu.</summary>
+        public static string Clock(TimeSpan t)
+        {
+            if (t.TotalSeconds < 0) t = TimeSpan.Zero;
+            if (t.TotalHours >= 1)
+                return string.Format("{0}:{1:00}:{2:00}", (int)t.TotalHours, t.Minutes, t.Seconds);
+            return string.Format("{0}:{1:00}", (int)t.TotalMinutes, t.Seconds);
+        }
+
+        /// <summary>Sisa waktu untuk ditampilkan ke pengguna; hampir habis ditulis apa adanya.</summary>
+        public static string SisaWaktu(TimeSpan t)
+        {
+            if (t.TotalSeconds < 2) return "hampir selesai";
+            return "sisa sekitar " + HumanEta(t);
+        }
+
         public static string HumanEta(TimeSpan t)
         {
             if (t.TotalSeconds < 1 || t.TotalDays > 1) return "-";

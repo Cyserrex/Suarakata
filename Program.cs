@@ -88,9 +88,31 @@ namespace Suarakata
             Action<string> status = s => Console.Error.WriteLine("[status] " + s);
             Action<string> onLine = l => Console.Out.WriteLine(l);
 
+            var mulai = DateTime.UtcNow;
+            Action<double> onProgress = p =>
+            {
+                var berjalan = DateTime.UtcNow - mulai;
+                if (p <= 0.02)
+                {
+                    Console.Error.Write(string.Format("\r[proses] {0:0}% ({1} berjalan)      ",
+                        p * 100, Ui.Clock(berjalan)));
+                    return;
+                }
+                var total = TimeSpan.FromSeconds(berjalan.TotalSeconds / p);
+                var sisa = total - berjalan;
+                if (sisa < TimeSpan.Zero) sisa = TimeSpan.Zero;
+                Console.Error.Write(string.Format("\r[proses] {0:0}% | {1} berjalan | {2}      ",
+                    p * 100, Ui.Clock(berjalan), Ui.SisaWaktu(sisa)));
+            };
+
             string full = await Transcriber.TranscribeAsync(
                 audio, model, lang, includeTimestamps: false,
-                modelsDir: modelsDir, status: status, onLine: onLine).ConfigureAwait(false);
+                modelsDir: modelsDir, status: status, onLine: onLine,
+                onProgress: onProgress).ConfigureAwait(false);
+
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(string.Format("[status] Selesai dalam {0}.",
+                Ui.HumanEta(DateTime.UtcNow - mulai)));
 
             File.WriteAllText(outPath, full, new System.Text.UTF8Encoding(true));
             Console.Error.WriteLine("[status] Tersimpan: " + outPath);

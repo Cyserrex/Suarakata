@@ -23,6 +23,12 @@ namespace Suarakata
         private TextView _txtOut;
         private SlimScrollBar _scroll;
 
+        private Label _lblWaktu;
+        private readonly System.Windows.Forms.Timer _tickWaktu = new System.Windows.Forms.Timer { Interval = 500 };
+        private DateTime _mulaiProses;
+        private double _progresTerakhir;
+        private bool _sedangProses;
+
         private string _fullText = string.Empty;
         private CancellationTokenSource _cts;
         // Preferensi baru boleh disimpan setelah UI selesai dibangun, supaya event
@@ -42,7 +48,7 @@ namespace Suarakata
             DoubleBuffered = true;
             BuildUi();
             Theme.Changed += ApplyTheme;
-            FormClosed += (s, e) => Theme.Changed -= ApplyTheme;
+            FormClosed += (s, e) => { Theme.Changed -= ApplyTheme; _tickWaktu.Dispose(); };
             try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         }
 
@@ -168,6 +174,20 @@ namespace Suarakata
                 Visible = false
             };
 
+            // Penghitung waktu: berjalan / perkiraan total, diperbarui tiap setengah detik.
+            _lblWaktu = new Label
+            {
+                Text = string.Empty,
+                Font = Ui.F(9f),
+                ForeColor = Theme.Muted,
+                BackColor = Theme.Card,
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleRight,
+                Bounds = new Rectangle(ClientSize.Width - 320, 16, 176, 20),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Tag = "muted"
+            };
+
             _btnCancel = new RoundedButton
             {
                 Text = "Batalkan",
@@ -187,7 +207,8 @@ namespace Suarakata
                 }
             };
 
-            _footer.Controls.AddRange(new Control[] { _badgeStatus, _lblStatus, _bar, _btnCancel });
+            _footer.Controls.AddRange(new Control[] { _badgeStatus, _lblStatus, _lblWaktu, _bar, _btnCancel });
+            _tickWaktu.Tick += (s, e) => PerbaruiWaktu();
         }
 
         private void BuildContent()
@@ -450,6 +471,40 @@ namespace Suarakata
             });
         }
 
+        /// <summary>
+        /// Menampilkan persen, waktu berjalan, dan perkiraan sisa waktu. Perkiraan dihitung
+        /// dari kecepatan sejauh ini, jadi baru muncul setelah kemajuan cukup untuk diandalkan.
+        /// </summary>
+        private void PerbaruiWaktu()
+        {
+            if (!_sedangProses) return;
+
+            var berjalan = DateTime.UtcNow - _mulaiProses;
+            double p = _progresTerakhir;
+
+            if (p <= 0.02)
+            {
+                _badgeStatus.Text = "Proses";
+                _badgeStatus.Accent = Theme.Accent;
+                _lblWaktu.Text = Ui.Clock(berjalan) + " berjalan";
+            }
+            else
+            {
+                var total = TimeSpan.FromSeconds(berjalan.TotalSeconds / p);
+                var sisa = total - berjalan;
+                if (sisa < TimeSpan.Zero) sisa = TimeSpan.Zero;
+
+                _badgeStatus.Text = string.Format("{0:0}%", p * 100);
+                _badgeStatus.Accent = Theme.Accent;
+                _lblStatus.Text = "Mentranskripsi audio, " + Ui.SisaWaktu(sisa) + ".";
+                _lblWaktu.Text = Ui.Clock(berjalan) + " / perkiraan " + Ui.Clock(total);
+            }
+
+            _badgeStatus.Width = TextRenderer.MeasureText(_badgeStatus.Text, _badgeStatus.Font).Width + 34;
+            _lblStatus.Left = _badgeStatus.Right + 12;
+            _badgeStatus.Invalidate();
+        }
+
         private ModelDef SelectedModel()
         {
             int i = _cboModel.SelectedIndex;
@@ -547,7 +602,12 @@ namespace Suarakata
             _bar.Value = 0;
             _bar.Indeterminate = true;
 
-            Action<string> status = s => SetStatus(s, Theme.Accent, "Proses");
+            Action<string> status = s => SafeInvoke(() =>
+            {
+                // Badge dipegang penghitung persen; di sini cukup teks statusnya.
+                _lblStatus.Text = s;
+                if (_progresTerakhir <= 0.02) SetStatus(s, Theme.Accent, "Proses");
+            });
             Action<string> onLine = l => SafeInvoke(() =>
             {
                 _txtOut.AppendText(l + Environment.NewLine);
@@ -557,6 +617,8 @@ namespace Suarakata
             {
                 if (_bar.Indeterminate) _bar.Indeterminate = false;
                 _bar.Value = p;
+                _progresTerakhir = p;
+                PerbaruiWaktu();
             });
 
             try
@@ -568,7 +630,10 @@ namespace Suarakata
                 {
                     _bar.Indeterminate = false;
                     _bar.Value = 1;
-                    SetStatus("Selesai. " + _txtOut.Lines.Length + " baris dihasilkan.", Theme.Success, "Selesai");
+                    var durasi = DateTime.UtcNow - _mulaiProses;
+                    SetStatus(string.Format("Selesai dalam {0}. {1} baris dihasilkan.",
+                        Ui.HumanEta(durasi), _txtOut.Lines.Length), Theme.Success, "Selesai");
+                    _lblWaktu.Text = "total " + Ui.Clock(durasi);
                     _btnSave.Enabled = _fullText.Length > 0;
                     _btnCopy.Enabled = _fullText.Length > 0;
                     UpdateCounter();
@@ -576,7 +641,9 @@ namespace Suarakata
             }
             catch (OperationCanceledException)
             {
-                SetStatus("Transkripsi dibatalkan.", Theme.Warn, "Batal");
+                var terpakai = DateTime.UtcNow - _mulaiProses;
+                SetStatus("Transkripsi dibatalkan setelah " + Ui.HumanEta(terpakai) + ".", Theme.Warn, "Batal");
+                SafeInvoke(() => _lblWaktu.Text = string.Empty);
                 SafeInvoke(() =>
                 {
                     _btnSave.Enabled = _txtOut.TextLength > 0;
@@ -632,6 +699,19 @@ namespace Suarakata
 
         private void SetBusy(bool busy)
         {
+            _sedangProses = busy;
+            if (busy)
+            {
+                _mulaiProses = DateTime.UtcNow;
+                _progresTerakhir = 0;
+                _lblWaktu.Text = "0:00 berjalan";
+                _tickWaktu.Start();
+            }
+            else
+            {
+                _tickWaktu.Stop();
+            }
+
             _btnRun.Enabled = !busy && !string.IsNullOrEmpty(_drop.SelectedFile);
             _drop.Enabled = !busy;
             _cboModel.Enabled = !busy;
