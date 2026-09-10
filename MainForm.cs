@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Windows.Forms;
 using Whisper.net.Ggml;
@@ -8,6 +9,16 @@ namespace Suarakata
 {
     public class MainForm : Form
     {
+        // Palet warna (light modern)
+        private static readonly Color CAccent = Color.FromArgb(37, 99, 235);   // blue-600
+        private static readonly Color CAccentHover = Color.FromArgb(29, 78, 216); // blue-700
+        private static readonly Color CBg = Color.FromArgb(243, 244, 246);       // gray-100
+        private static readonly Color CCard = Color.White;
+        private static readonly Color CText = Color.FromArgb(31, 41, 55);        // gray-800
+        private static readonly Color CMuted = Color.FromArgb(107, 114, 128);    // gray-500
+        private static readonly Color CBorder = Color.FromArgb(226, 229, 234);   // gray-200
+        private static readonly Color CHover = Color.FromArgb(243, 244, 246);
+
         private TextBox txtFile;
         private Button btnBrowse;
         private ComboBox cboModel;
@@ -32,85 +43,152 @@ namespace Suarakata
 
         public MainForm()
         {
+            DoubleBuffered = true;
             BuildUi();
+        }
+
+        private sealed class BufferedPanel : Panel
+        {
+            public BufferedPanel()
+            {
+                DoubleBuffered = true;
+                ResizeRedraw = true;
+            }
         }
 
         private void BuildUi()
         {
-            Text = "Suarakata — Speech to Text (Whisper)";
-            Font = new Font("Segoe UI", 9f);
+            Text = "Suarakata — Speech to Text";
+            Font = new Font("Segoe UI", 9.5f);
+            BackColor = CBg;
+            ForeColor = CText;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(800, 620);
-            MinimumSize = new Size(680, 520);
+            ClientSize = new Size(880, 700);
+            MinimumSize = new Size(720, 560);
 
-            var lblFile = new Label { Text = "File audio (.ogg .opus .mp3 .m4a .wav ...):", Left = 12, Top = 12, Width = 400, AutoSize = true };
-            txtFile = new TextBox { Left = 12, Top = 32, Width = 640, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-            btnBrowse = new Button { Text = "Telusuri...", Left = 660, Top = 30, Width = 128, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            // ---------- HEADER ----------
+            var header = new BufferedPanel { Dock = DockStyle.Top, Height = 72, BackColor = CAccent };
+            var icon = new Label
+            {
+                Text = "\uE720", // Segoe MDL2 Assets: Microphone
+                Font = new Font("Segoe MDL2 Assets", 24f),
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds = new Rectangle(20, 12, 46, 46)
+            };
+            var title = new Label
+            {
+                Text = "Suarakata",
+                Font = new Font("Segoe UI", 18f, FontStyle.Bold),
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                AutoSize = true,
+                Location = new Point(74, 11)
+            };
+            var subtitle = new Label
+            {
+                Text = "Speech to Text • transkripsi suara jadi teks (offline)",
+                Font = new Font("Segoe UI", 8.75f),
+                ForeColor = Color.FromArgb(219, 234, 254),
+                BackColor = Color.Transparent,
+                AutoSize = true,
+                Location = new Point(76, 46)
+            };
+            header.Controls.AddRange(new Control[] { icon, title, subtitle });
+
+            // ---------- FOOTER ----------
+            var footer = new BufferedPanel { Dock = DockStyle.Bottom, Height = 64, BackColor = CCard };
+            footer.Paint += (s, e) =>
+            {
+                using (var pen = new Pen(CBorder, 1))
+                    e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0);
+            };
+            lblStatus = new Label { Text = "Siap.", ForeColor = CMuted, AutoSize = false, Bounds = new Rectangle(20, 11, 440, 20), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+            bar = new ProgressBar { Bounds = new Rectangle(20, 36, 320, 6), Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 25, Visible = false, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnCopy = new Button { Text = "Salin", Bounds = new Rectangle(760, 14, 100, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right, Enabled = false };
+            btnSave = new Button { Text = "Simpan .txt", Bounds = new Rectangle(636, 14, 116, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right, Enabled = false };
+            StyleSecondary(btnCopy);
+            StyleSecondary(btnSave);
+            btnSave.Click += BtnSave_Click;
+            btnCopy.Click += BtnCopy_Click;
+            footer.Controls.AddRange(new Control[] { lblStatus, bar, btnSave, btnCopy });
+
+            // ---------- CONTENT ----------
+            var content = new BufferedPanel
+            {
+                BackColor = CBg,
+                Bounds = new Rectangle(0, header.Height, ClientSize.Width, ClientSize.Height - header.Height - footer.Height),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            int cardW = content.Width - 36;
+
+            // Kartu input
+            var inputCard = new BufferedPanel
+            {
+                Bounds = new Rectangle(18, 14, cardW, 162),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = CBg
+            };
+            StyleCard(inputCard);
+
+            var lblFile = new Label { Text = "FILE AUDIO", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = CMuted, AutoSize = true, Location = new Point(18, 14) };
+            txtFile = new TextBox { Bounds = new Rectangle(18, 36, inputCard.Width - 18 - 132 - 12, 26), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10f) };
+            btnBrowse = new Button { Text = "Telusuri…", Bounds = new Rectangle(inputCard.Width - 18 - 132, 34, 132, 30), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            StyleSecondary(btnBrowse);
             btnBrowse.Click += BtnBrowse_Click;
 
-            var lblModel = new Label { Text = "Model:", Left = 12, Top = 70, Width = 45, AutoSize = true };
-            cboModel = new ComboBox { Left = 60, Top = 66, Width = 175, DropDownStyle = ComboBoxStyle.DropDownList };
-            cboModel.Items.AddRange(new object[]
-            {
-                "Tiny (~75 MB)",
-                "Base (~142 MB)",
-                "Small (~466 MB)",
-                "Medium (~1.5 GB)",
-                "Large-v3 (~3 GB)"
-            });
-            cboModel.SelectedIndex = 2; // Small
+            var lblModel = new Label { Text = "MODEL", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = CMuted, AutoSize = true, Location = new Point(18, 82) };
+            cboModel = new ComboBox { Bounds = new Rectangle(18, 102, 186, 26), DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = CCard, Font = new Font("Segoe UI", 9.5f) };
+            cboModel.Items.AddRange(new object[] { "Tiny (~75 MB)", "Base (~142 MB)", "Small (~466 MB)", "Medium (~1.5 GB)", "Large-v3 (~3 GB)" });
+            cboModel.SelectedIndex = 2;
 
-            var lblLang = new Label { Text = "Bahasa:", Left = 250, Top = 70, Width = 50, AutoSize = true };
-            cboLang = new ComboBox { Left = 305, Top = 66, Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
-            cboLang.Items.AddRange(new object[]
-            {
-                "Auto-deteksi",
-                "Indonesia",
-                "Banjar (via Indonesia)",
-                "Inggris",
-                "Melayu",
-                "Jawa",
-                "Sunda",
-                "Arab",
-                "Mandarin"
-            });
-            cboLang.SelectedIndex = 1; // Indonesia
+            var lblLang = new Label { Text = "BAHASA", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = CMuted, AutoSize = true, Location = new Point(220, 82) };
+            cboLang = new ComboBox { Bounds = new Rectangle(220, 102, 196, 26), DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = CCard, Font = new Font("Segoe UI", 9.5f) };
+            cboLang.Items.AddRange(new object[] { "Auto-deteksi", "Indonesia", "Banjar (via Indonesia)", "Inggris", "Melayu", "Jawa", "Sunda", "Arab", "Mandarin" });
+            cboLang.SelectedIndex = 1;
 
-            chkTimestamps = new CheckBox { Text = "Sertakan waktu", Left = 470, Top = 68, Width = 130, AutoSize = true };
+            chkTimestamps = new CheckBox { Text = "Sertakan waktu", ForeColor = CText, AutoSize = true, Location = new Point(432, 104) };
 
-            btnRun = new Button { Text = "Transkripsi", Left = 660, Top = 64, Width = 128, Height = 30, Anchor = AnchorStyles.Top | AnchorStyles.Right };
-            btnRun.Font = new Font(Font, FontStyle.Bold);
+            btnRun = new Button { Text = "▶   Transkripsi", Bounds = new Rectangle(inputCard.Width - 18 - 176, 92, 176, 46), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            StylePrimary(btnRun);
             btnRun.Click += BtnRun_Click;
 
-            bar = new ProgressBar { Left = 12, Top = 104, Width = 776, Height = 14, Style = ProgressBarStyle.Marquee, Visible = false, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-            lblStatus = new Label { Text = "Siap.", Left = 12, Top = 124, Width = 776, AutoSize = false, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+            inputCard.Controls.AddRange(new Control[] { lblFile, txtFile, btnBrowse, lblModel, cboModel, lblLang, cboLang, chkTimestamps, btnRun });
 
+            // Kartu hasil
+            var outputCard = new BufferedPanel
+            {
+                Bounds = new Rectangle(18, 190, cardW, content.Height - 190 - 14),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = CBg
+            };
+            StyleCard(outputCard);
+
+            var lblOut = new Label { Text = "HASIL TRANSKRIPSI", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = CMuted, AutoSize = true, Location = new Point(18, 14) };
             txtOut = new TextBox
             {
-                Left = 12,
-                Top = 150,
-                Width = 776,
-                Height = 418,
+                Bounds = new Rectangle(16, 38, outputCard.Width - 32, outputCard.Height - 38 - 16),
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical,
                 WordWrap = true,
-                ReadOnly = false,
+                BorderStyle = BorderStyle.None,
+                BackColor = CCard,
+                ForeColor = CText,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
-                Font = new Font("Segoe UI", 10f)
+                Font = new Font("Segoe UI", 11f)
             };
+            outputCard.Controls.AddRange(new Control[] { lblOut, txtOut });
 
-            btnSave = new Button { Text = "Simpan .txt", Left = 12, Top = 580, Width = 120, Height = 28, Enabled = false, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
-            btnSave.Click += BtnSave_Click;
-            btnCopy = new Button { Text = "Salin", Left = 140, Top = 580, Width = 100, Height = 28, Enabled = false, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
-            btnCopy.Click += BtnCopy_Click;
+            content.Controls.Add(inputCard);
+            content.Controls.Add(outputCard);
 
-            Controls.AddRange(new Control[]
-            {
-                lblFile, txtFile, btnBrowse,
-                lblModel, cboModel, lblLang, cboLang, chkTimestamps, btnRun,
-                bar, lblStatus, txtOut, btnSave, btnCopy
-            });
+            Controls.Add(header);
+            Controls.Add(footer);
+            Controls.Add(content);
 
+            // ---------- Drag & drop ----------
             AllowDrop = true;
             DragEnter += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy; };
             DragDrop += (s, e) =>
@@ -119,6 +197,79 @@ namespace Suarakata
                 if (files != null && files.Length > 0) txtFile.Text = files[0];
             };
         }
+
+        // ===================== STYLING HELPERS =====================
+
+        private static GraphicsPath RoundedRect(Rectangle r, int radius)
+        {
+            var path = new GraphicsPath();
+            if (radius <= 0 || r.Width <= 0 || r.Height <= 0) { path.AddRectangle(r); return path; }
+            int d = radius * 2;
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private void StyleCard(Panel p)
+        {
+            // Panel transparan terhadap CBg; kartu putih membulat digambar via Paint (anti-alias).
+            p.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var rect = new Rectangle(0, 0, p.Width - 1, p.Height - 1);
+                using (var path = RoundedRect(rect, 12))
+                using (var fill = new SolidBrush(CCard))
+                using (var pen = new Pen(CBorder, 1))
+                {
+                    g.FillPath(fill, path);
+                    g.DrawPath(pen, path);
+                }
+            };
+        }
+
+        private void StylePrimary(Button b)
+        {
+            b.FlatStyle = FlatStyle.Flat;
+            b.FlatAppearance.BorderSize = 0;
+            b.BackColor = CAccent;
+            b.ForeColor = Color.White;
+            b.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
+            b.Cursor = Cursors.Hand;
+            b.FlatAppearance.MouseOverBackColor = CAccentHover;
+            b.FlatAppearance.MouseDownBackColor = CAccentHover;
+            RoundControl(b, 8);
+        }
+
+        private void StyleSecondary(Button b)
+        {
+            b.FlatStyle = FlatStyle.Flat;
+            b.BackColor = CCard;
+            b.ForeColor = CText;
+            b.Font = new Font("Segoe UI", 9.5f);
+            b.Cursor = Cursors.Hand;
+            b.FlatAppearance.BorderColor = CBorder;
+            b.FlatAppearance.BorderSize = 1;
+            b.FlatAppearance.MouseOverBackColor = CHover;
+            RoundControl(b, 8);
+        }
+
+        private static void RoundControl(Control c, int radius)
+        {
+            Action apply = () =>
+            {
+                if (c.Width <= 0 || c.Height <= 0) return;
+                using (var path = RoundedRect(new Rectangle(0, 0, c.Width, c.Height), radius))
+                    c.Region = new Region(path);
+            };
+            apply();
+            c.Resize += (s, e) => apply();
+        }
+
+        // ===================== LOGIC =====================
 
         private void BtnBrowse_Click(object sender, EventArgs e)
         {
