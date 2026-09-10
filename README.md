@@ -102,6 +102,24 @@ Suarakata/
   manual ke folder `models\`.
 - **Hasil kurang akurat** → gunakan model lebih besar (`medium` / `large-v3`).
 
+## Distribusi (installer)
+
+Untuk mengemas aplikasi ke komputer lain:
+
+1. Jalankan `build-release.ps1` (build Release + salin `ffmpeg.exe` ke `bin\Release`).
+2. Buat installer dengan [Inno Setup](https://jrsoftware.org/isdl.php):
+   ```powershell
+   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\installer\Suarakata.iss
+   ```
+   Hasil: `installer\Output\Suarakata-Setup-1.0.0.exe`.
+
+Alternatif tanpa installer: cukup **zip seluruh isi `bin\Release`** (termasuk
+`Suarakata.exe`, `ffmpeg.exe`, folder `runtimes\`, dan `*.dll`) lalu ekstrak di
+komputer tujuan. Model `ggml-*.bin` akan diunduh otomatis saat pertama dipakai.
+
+> Catatan lisensi: `ffmpeg.exe` yang dibundel mengikuti lisensi build-nya
+> (LGPL/GPL). Sertakan pemberitahuan lisensi ffmpeg bila mendistribusikan.
+
 ## Lisensi
 
 Whisper.net dan whisper.cpp berlisensi MIT. ffmpeg berlisensi LGPL/GPL sesuai build.

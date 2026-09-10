@@ -184,7 +184,7 @@ namespace Suarakata
                 dlg.FileName = (string.IsNullOrEmpty(src) ? "transkrip" : Path.GetFileNameWithoutExtension(src)) + ".txt";
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
-                    File.WriteAllText(dlg.FileName, chkTimestamps.Checked ? txtOut.Text : _fullText);
+                    File.WriteAllText(dlg.FileName, chkTimestamps.Checked ? txtOut.Text : _fullText, System.Text.Encoding.UTF8);
                     lblStatus.Text = "Tersimpan: " + dlg.FileName;
                 }
             }

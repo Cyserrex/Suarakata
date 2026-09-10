@@ -12,6 +12,9 @@ _smoketest.txt
 stt_error.log
 *.download
 
+# Output installer (Inno Setup)
+installer/Output/
+
 # Visual Studio / user
 .vs/
 *.user

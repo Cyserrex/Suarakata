@@ -52,7 +52,7 @@ namespace Suarakata
                 audio, model, lang, includeTimestamps: false,
                 modelsDir: modelsDir, status: status, onLine: onLine);
 
-            File.WriteAllText(outPath, full);
+            File.WriteAllText(outPath, full, System.Text.Encoding.UTF8);
             Console.Error.WriteLine("[status] Tersimpan: " + outPath);
             return 0;
         }
