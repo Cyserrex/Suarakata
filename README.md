@@ -76,9 +76,12 @@ rate-limit.
 
 ## Bahasa yang tersedia di GUI
 
-Auto-deteksi, Indonesia (`id`), Inggris (`en`), Melayu (`ms`), Jawa (`jw`),
-Sunda (`su`), Arab (`ar`), Mandarin (`zh`). Mode CLI menerima kode bahasa apa pun
-yang didukung Whisper.
+Auto-deteksi, Indonesia (`id`), Banjar (via Indonesia → `id`), Inggris (`en`),
+Melayu (`ms`), Jawa (`jw`), Sunda (`su`), Arab (`ar`), Mandarin (`zh`). Mode CLI
+menerima kode bahasa apa pun yang didukung Whisper.
+
+> Catatan: Whisper tidak memiliki kode bahasa Banjar tersendiri. Opsi "Banjar
+> (via Indonesia)" memakai model Indonesia (`id`) sebagai pendekatan terbaik.
 
 ## Struktur proyek
 

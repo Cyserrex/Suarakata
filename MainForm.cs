@@ -24,7 +24,7 @@ namespace Suarakata
 
         // Nilai bahasa sejajar dengan item cboLang
         private static readonly string[] LangCodes =
-            { "auto", "id", "en", "ms", "jw", "su", "ar", "zh" };
+            { "auto", "id", "id", "en", "ms", "jw", "su", "ar", "zh" };
 
         // Tipe model sejajar dengan item cboModel
         private static readonly GgmlType[] ModelTypes =
@@ -66,6 +66,7 @@ namespace Suarakata
             {
                 "Auto-deteksi",
                 "Indonesia",
+                "Banjar (via Indonesia)",
                 "Inggris",
                 "Melayu",
                 "Jawa",
