@@ -45,6 +45,7 @@ namespace Suarakata
         {
             DoubleBuffered = true;
             BuildUi();
+            try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         }
 
         private sealed class BufferedPanel : Panel
