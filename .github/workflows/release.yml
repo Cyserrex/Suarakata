@@ -1,0 +1,138 @@
+name: Rilis otomatis
+
+# Menerbitkan rilis begitu nomor versi baru masuk ke main.
+# Versi diambil dari Suarakata.csproj; bila tag v<versi> sudah ada, rilis dilewati.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rilis:
+    runs-on: windows-latest
+
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Baca dan periksa versi
+        id: versi
+        shell: pwsh
+        run: |
+          $v = (Select-Xml -Path .\Suarakata.csproj -XPath '//PropertyGroup/Version').Node.InnerText.Trim()
+          if (-not $v) { throw 'Elemen <Version> tidak ditemukan di Suarakata.csproj.' }
+
+          # Nomor versi harus seragam di csproj dan skrip Inno Setup.
+          $iss = Get-Content .\installer\Suarakata.iss -Raw
+          if ($iss -notmatch '#define\s+MyAppVersion\s+"([\d\.]+)"') {
+            throw 'MyAppVersion tidak ditemukan di installer\Suarakata.iss.'
+          }
+          $vIss = $Matches[1]
+          if ($v -ne $vIss) {
+            throw "Versi tidak seragam: csproj $v, installer $vIss. Pakai .\set-version.ps1 <versi>."
+          }
+
+          $tag = "v$v"
+          $sudahAda = git ls-remote --tags origin "refs/tags/$tag"
+          if ([string]::IsNullOrWhiteSpace($sudahAda)) { $lewati = 'false' } else { $lewati = 'true' }
+
+          "versi=$v" | Out-File $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File $env:GITHUB_OUTPUT -Append
+          "lewati=$lewati" | Out-File $env:GITHUB_OUTPUT -Append
+
+          if ($lewati -eq 'true') {
+            Write-Host "Tag $tag sudah ada, rilis dilewati."
+          } else {
+            Write-Host "Akan merilis $tag."
+          }
+
+      - name: Siapkan .NET SDK
+        if: steps.versi.outputs.lewati == 'false'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build Release
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        run: dotnet build .\Suarakata.sln -c Release --nologo
+
+      - name: Ambil ffmpeg
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        run: |
+          # Build LGPL dipilih supaya aman didistribusikan bersama aplikasi.
+          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip'
+          Invoke-WebRequest $url -OutFile ffmpeg.zip -UseBasicParsing
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
+          $exe = Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $exe) { throw 'ffmpeg.exe tidak ditemukan di dalam arsip.' }
+          Copy-Item $exe.FullName .\bin\Release\ffmpeg.exe -Force
+          Write-Host ("ffmpeg: {0:N1} MB" -f ((Get-Item .\bin\Release\ffmpeg.exe).Length / 1MB))
+
+      - name: Pasang Inno Setup
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Bangun installer
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe tidak ditemukan setelah pemasangan Inno Setup.' }
+          & $iscc .\installer\Suarakata.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Kompilasi installer gagal.' }
+
+      - name: Kemas versi portable
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        run: |
+          $v = '${{ steps.versi.outputs.versi }}'
+          Compress-Archive -Path .\bin\Release\* -DestinationPath "Suarakata-$v-portable.zip" -Force
+
+      - name: Susun catatan rilis
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        run: |
+          $v = '${{ steps.versi.outputs.versi }}'
+          $prev = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
+          if ($prev) { $log = git log "$prev..HEAD" --pretty='- %s' } else { $log = git log -20 --pretty='- %s' }
+          $daftar = ($log | Where-Object { $_ -notmatch '^- Merge ' }) -join "`n"
+          if (-not $daftar) { $daftar = '- Pembaruan kecil.' }
+
+          $baris = @(
+            '## Perubahan'
+            ''
+            $daftar
+            ''
+            '## Unduhan'
+            ''
+            "- Suarakata-Setup-$v.exe : installer untuk Windows 10/11 64-bit"
+            "- Suarakata-$v-portable.zip : versi portable, cukup ekstrak lalu jalankan"
+            ''
+            'Model Whisper tidak ikut dipaketkan karena ukurannya besar. Unduh lewat tombol'
+            'Kelola Model di dalam aplikasi; unduhan bisa dijeda dan dilanjutkan kapan saja.'
+            ''
+            'ffmpeg yang dibundel berasal dari https://github.com/BtbN/FFmpeg-Builds (build LGPL).'
+          )
+          Set-Content -Path notes.md -Value ($baris -join "`n") -Encoding utf8
+          Get-Content notes.md
+
+      - name: Terbitkan rilis
+        if: steps.versi.outputs.lewati == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = '${{ steps.versi.outputs.versi }}'
+          $tag = '${{ steps.versi.outputs.tag }}'
+          gh release create $tag --title "Suarakata $tag" --notes-file notes.md --target $env:GITHUB_SHA ".\installer\Output\Suarakata-Setup-$v.exe" ".\Suarakata-$v-portable.zip"
+          if ($LASTEXITCODE -ne 0) { throw 'Pembuatan rilis gagal.' }
+          Write-Host "Rilis $tag terbit."

@@ -181,6 +181,28 @@ win-x86/win-arm64 dari paket NuGet sengaja tidak disertakan.
 > (build statis penuh). Bila ingin paket lebih kecil, ganti `bin\Releasefmpeg.exe`
 > dengan build "essentials" sebelum mengompilasi installer.
 
+### Rilis otomatis
+
+Setiap push ke `main` memicu alur kerja [`.github/workflows/release.yml`](.github/workflows/release.yml)
+di GitHub Actions. Alur ini membaca `<Version>` dari `Suarakata.csproj`, dan bila tag
+`v<versi>` belum ada, ia membangun aplikasi, mengunduh ffmpeg build LGPL, mengompilasi
+installer, lalu menerbitkan rilis berisi dua berkas:
+
+- `Suarakata-Setup-<versi>.exe` - installer
+- `Suarakata-<versi>-portable.zip` - versi portable
+
+Bila tag untuk versi itu sudah ada, alur berhenti tanpa membuat apa pun, sehingga push
+biasa tidak menghasilkan rilis ganda.
+
+Naikkan versi lewat skrip supaya nomor di `Suarakata.csproj` dan `installer\Suarakata.iss`
+tetap seragam (alur rilis menolak versi yang tidak sinkron):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\set-version.ps1 1.3.0
+git commit -am "rilis 1.3.0"
+git push
+```
+
 ### Lokasi model setelah dipasang
 
 Model disimpan di folder `models\` di samping executable bila folder itu bisa ditulis
