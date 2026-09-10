@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+
+# Model & artefak runtime (besar, diunduh otomatis)
+models/
+*.bin
+ffmpeg.exe
+
+# Artefak uji / log
+_smoketest.txt
+stt_error.log
+*.download
+
+# Visual Studio / user
+.vs/
+*.user
+*.suo
