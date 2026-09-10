@@ -11,6 +11,7 @@ ffmpeg.exe
 _smoketest.txt
 stt_error.log
 *.download
+*.part
 
 # Output installer (Inno Setup)
 installer/Output/

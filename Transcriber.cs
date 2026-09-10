@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Whisper.net;
 using Whisper.net.Ggml;
@@ -9,63 +10,34 @@ using Whisper.net.Ggml;
 namespace Suarakata
 {
     /// <summary>
-    /// Inti pipeline speech-to-text: unduh model ggml, konversi audio ke WAV 16k mono via ffmpeg,
-    /// lalu transkripsi memakai Whisper.net (whisper.cpp).
+    /// Inti pipeline speech-to-text: memastikan model tersedia, konversi audio ke WAV 16k mono
+    /// via ffmpeg, lalu transkripsi memakai Whisper.net (whisper.cpp).
     /// </summary>
     internal static class Transcriber
     {
         public static GgmlType ParseModel(string s)
         {
+            var def = ModelCatalog.ByKey(s);
+            if (def != null) return def.Type;
             switch ((s ?? "small").Trim().ToLowerInvariant())
             {
-                case "tiny": return GgmlType.Tiny;
-                case "base": return GgmlType.Base;
-                case "small": return GgmlType.Small;
-                case "medium": return GgmlType.Medium;
                 case "large":
-                case "largev3":
-                case "large-v3": return GgmlType.LargeV3;
+                case "largev3": return GgmlType.LargeV3;
                 default: return GgmlType.Small;
             }
         }
 
         public static string ModelFileName(GgmlType type)
         {
-            switch (type)
-            {
-                case GgmlType.Tiny: return "ggml-tiny.bin";
-                case GgmlType.Base: return "ggml-base.bin";
-                case GgmlType.Small: return "ggml-small.bin";
-                case GgmlType.Medium: return "ggml-medium.bin";
-                case GgmlType.LargeV3: return "ggml-large-v3.bin";
-                default: return "ggml-" + type.ToString().ToLowerInvariant() + ".bin";
-            }
+            return ModelCatalog.ByType(type).FileName;
         }
 
-        public static async Task<string> EnsureModelAsync(GgmlType type, string modelsDir, Action<string> status)
+        /// <summary>Mengembalikan lokasi model bila sudah terpasang; jika belum, melempar ModelMissingException.</summary>
+        public static string ResolveModelPath(GgmlType type, string modelsDir)
         {
-            Directory.CreateDirectory(modelsDir);
-            string path = Path.Combine(modelsDir, ModelFileName(type));
-            if (File.Exists(path) && new FileInfo(path).Length > 1_000_000)
-                return path;
-
-            status?.Invoke("Mengunduh model " + type + " ...");
-            string tmp = path + ".download";
-            using (var src = await WhisperGgmlDownloader.Default.GetGgmlModelAsync(type).ConfigureAwait(false))
-            using (var dst = File.Create(tmp))
-            {
-                byte[] buffer = new byte[131072];
-                long total = 0;
-                int read;
-                while ((read = await src.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
-                {
-                    dst.Write(buffer, 0, read);
-                    total += read;
-                    status?.Invoke(string.Format("Mengunduh model {0}: {1:0.0} MB", type, total / 1048576.0));
-                }
-            }
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(tmp, path);
+            var def = ModelCatalog.ByType(type);
+            string path = ModelDownloader.ExistingPath(def, modelsDir);
+            if (path == null) throw new ModelMissingException(def);
             return path;
         }
 
@@ -81,7 +53,6 @@ namespace Suarakata
             foreach (var c in candidates)
                 if (File.Exists(c)) return c;
 
-            // Cari di PATH
             try
             {
                 var psi = new ProcessStartInfo("where", "ffmpeg")
@@ -129,26 +100,42 @@ namespace Suarakata
             return outWav;
         }
 
+        /// <summary>Perkiraan durasi WAV 16 kHz mono 16-bit dari ukuran berkas.</summary>
+        private static TimeSpan WavDuration(string wavPath)
+        {
+            try
+            {
+                long bytes = new FileInfo(wavPath).Length - 44;
+                if (bytes <= 0) return TimeSpan.Zero;
+                return TimeSpan.FromSeconds(bytes / (16000.0 * 2.0));
+            }
+            catch { return TimeSpan.Zero; }
+        }
+
         public static async Task<string> TranscribeAsync(
             string audioPath, GgmlType modelType, string language, bool includeTimestamps,
-            string modelsDir, Action<string> status, Action<string> onLine)
+            string modelsDir, Action<string> status, Action<string> onLine,
+            Action<double> onProgress = null, CancellationToken ct = default(CancellationToken))
         {
             if (!File.Exists(audioPath))
                 throw new FileNotFoundException("File audio tidak ditemukan.", audioPath);
 
-            string modelPath = await EnsureModelAsync(modelType, modelsDir, status).ConfigureAwait(false);
+            string modelPath = ResolveModelPath(modelType, modelsDir);
 
             string ffmpeg = FindFfmpeg();
             if (ffmpeg == null)
                 throw new FileNotFoundException(
                     "ffmpeg tidak ditemukan. Letakkan ffmpeg.exe di folder aplikasi (atau sub-folder \\ffmpeg\\), atau tambahkan ke PATH.");
 
-            status?.Invoke("Mengonversi audio ke 16kHz mono...");
-            string wav = ConvertToWav(audioPath, ffmpeg);
+            if (status != null) status("Mengonversi audio ke 16 kHz mono...");
+            string wav = await Task.Run(() => ConvertToWav(audioPath, ffmpeg), ct).ConfigureAwait(false);
 
             try
             {
-                status?.Invoke("Memuat model & menranskripsi (mohon tunggu)...");
+                ct.ThrowIfCancellationRequested();
+                var duration = WavDuration(wav);
+
+                if (status != null) status("Memuat model " + ModelCatalog.ByType(modelType).Display + "...");
                 using (var factory = WhisperFactory.FromPath(modelPath))
                 {
                     var builder = factory.CreateBuilder();
@@ -159,19 +146,24 @@ namespace Suarakata
                     using (var processor = builder.Build())
                     using (var fileStream = File.OpenRead(wav))
                     {
+                        if (status != null) status("Mentranskripsi audio...");
                         var sb = new StringBuilder();
-                        await foreach (var segment in processor.ProcessAsync(fileStream).ConfigureAwait(false))
+                        await foreach (var segment in processor.ProcessAsync(fileStream, ct).ConfigureAwait(false))
                         {
                             string text = (segment.Text ?? string.Empty).Trim();
                             string line = includeTimestamps
                                 ? string.Format("[{0:hh\\:mm\\:ss} -> {1:hh\\:mm\\:ss}] {2}", segment.Start, segment.End, text)
                                 : text;
 
-                            onLine?.Invoke(line);
+                            if (onLine != null) onLine(line);
+
+                            if (onProgress != null && duration.TotalSeconds > 0.5)
+                                onProgress(Math.Min(1.0, segment.End.TotalSeconds / duration.TotalSeconds));
 
                             if (sb.Length > 0) sb.Append(' ');
                             sb.Append(text);
                         }
+                        if (onProgress != null) onProgress(1.0);
                         return sb.ToString().Trim();
                     }
                 }

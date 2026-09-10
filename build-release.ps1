@@ -33,13 +33,14 @@ if (-not (Test-Path $ffTarget)) {
 
 Write-Host '== Installer (opsional) ==' -ForegroundColor Cyan
 $iscc = @(
-    "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if ($iscc) {
     & $iscc '.\installer\Suarakata.iss'
-    Write-Host '  Installer selesai: installer\Output\Suarakata-Setup-1.0.0.exe' -ForegroundColor Green
+    Write-Host '  Installer selesai di installer\Output\' -ForegroundColor Green
 } else {
     Write-Warning '  Inno Setup (ISCC.exe) tidak ditemukan. Lewati pembuatan installer.'
     Write-Host  '  Alternatif: zip seluruh isi bin\Release untuk distribusi.'

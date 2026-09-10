@@ -8,12 +8,23 @@ untuk mengubah rekaman suara (voice note WhatsApp, mp3, dll.) menjadi teks secar
 ## Fitur
 
 - Transkripsi offline, akurasi tinggi (mendukung Bahasa Indonesia & banyak bahasa lain).
-- Pilih model: **Tiny / Base / Small / Medium / Large-v3** (diunduh otomatis sekali).
+- **Antarmuka modern** dengan **mode terang & gelap** (tombol bulan/matahari di header),
+  kartu membulat, area seret-dan-lepas, dan tombol datar bergaya Windows 11.
+- Seluruh kontrol digambar sendiri agar seragam: **dropdown**, **menu popup**, **kotak dialog**,
+  **kotak centang**, dan **scrollbar tipis** pada kotak hasil, tanpa kontrol Windows lawas.
+- **Pengelola Model** khusus: unduh, **jeda**, **lanjutkan**, batalkan, impor, dan hapus model.
+- Unduhan model bisa **dijeda lalu dilanjutkan** kapan saja, termasuk setelah aplikasi ditutup
+  (kemajuan tersimpan di berkas `.part` memakai HTTP Range).
+- Alternatif **unduh lewat browser**: buka tautan model di peramban, unduh di sana
+  (bisa dijeda/dilanjutkan peramban), lalu **impor** berkasnya ke aplikasi.
+- Pilih model: **Tiny / Base / Small / Medium / Large-v3**.
 - Pilih bahasa atau **auto-deteksi**.
 - Opsi **sertakan waktu** (timestamp per segmen).
-- **Drag & drop** file audio ke jendela aplikasi.
-- Tombol **Simpan .txt** dan **Salin**.
-- **Mode CLI** untuk otomatisasi / batch.
+- **Progres nyata** saat transkripsi (berdasarkan durasi audio) dan tombol **Batalkan**.
+- Penghitung kata/karakter, tombol **Simpan .txt** dan **Salin**.
+- Pilihan model, bahasa, timestamp, dan tema tersimpan otomatis di
+  `%AppData%\Suarakata\settings.cfg`.
+- **Mode CLI** untuk otomatisasi / batch, termasuk mengunduh model.
 
 ## Persyaratan
 
@@ -48,31 +59,61 @@ tersalin ke `bin\Release\runtimes\`.
 
 ```powershell
 Suarakata.exe "<file audio>" [model] [bahasa] [output.txt]
+Suarakata.exe --models                 # daftar model beserta statusnya
+Suarakata.exe --download <model>       # unduh model (otomatis lanjut bila ada .part)
 ```
 
 Contoh:
 
 ```powershell
-Suarakata.exe "C:\rekaman\pesan.ogg" small id "C:\rekaman\pesan.txt"
+Suarakata.exe "C:
+ekaman\pesan.ogg" small id "C:
+ekaman\pesan.txt"
+Suarakata.exe --download medium
 ```
 
 - `model`: `tiny` | `base` | `small` | `medium` | `large-v3` (default `small`)
 - `bahasa`: kode ISO seperti `id`, `en`, `ms`, `auto` (default `id`)
 - `output.txt`: opsional, default `<file audio>.stt.txt`
 
+Menekan `Ctrl+C` saat mengunduh hanya menjeda: berkas `.part` dipertahankan dan perintah
+`--download` berikutnya melanjutkan dari titik terakhir.
+
 ## Model
 
 | Model     | Ukuran unduh | Akurasi | Kecepatan (CPU) |
 |-----------|--------------|---------|-----------------|
-| Tiny      | ~75 MB       | Rendah  | Sangat cepat    |
-| Base      | ~142 MB      | Sedang- | Cepat           |
-| Small     | ~466 MB      | Sedang+ | Menengah        |
-| Medium    | ~1.5 GB      | Tinggi  | Lambat          |
-| Large-v3  | ~3 GB        | Terbaik | Paling lambat   |
+| Tiny      | ~74 MB       | Rendah  | Sangat cepat    |
+| Base      | ~141 MB      | Sedang- | Cepat           |
+| Small     | ~465 MB      | Sedang+ | Menengah        |
+| Medium    | ~1,43 GB     | Tinggi  | Lambat          |
+| Large-v3  | ~2,88 GB     | Terbaik | Paling lambat   |
 
-Model disimpan di folder `models\` di samping executable. Unduhan berasal dari
-Hugging Face; set variabel lingkungan `HF_TOKEN` untuk unduhan lebih cepat/tanpa
-rate-limit.
+Model disimpan di folder `models\` di samping executable dan diunduh dari Hugging Face
+(`https://huggingface.co/ggerganov/whisper.cpp`).
+
+### Mengunduh model (Kelola Model)
+
+Klik **Kelola Model** di header. Tiap baris punya status (Terpasang / Belum diunduh /
+Belum selesai) dan tombol:
+
+- **Unduh** memulai unduhan; saat berjalan tombol berubah jadi **Jeda**.
+- **Jeda** menghentikan aliran data tetapi menyimpan `models\ggml-*.bin.part`.
+  Tombol berubah jadi **Lanjutkan** dan unduhan diteruskan dari byte terakhir.
+- **Batal** menghentikan unduhan sekaligus membuang berkas `.part`.
+- Menu **roda gigi** berisi: *Unduh lewat browser*, *Impor berkas model (.bin)*,
+  *Salin tautan unduhan*, *Hapus unduhan tertunda*, dan *Hapus model dari disk*.
+
+Menutup jendela saat unduhan berjalan akan menjeda (bukan membatalkan), sehingga
+unduhan bisa dilanjutkan pada sesi berikutnya.
+
+### Unduh lewat browser
+
+Bila jaringan tidak stabil atau ingin memakai pengelola unduhan sendiri, pilih
+**Unduh lewat browser** pada menu roda gigi. Tautan model terbuka di peramban;
+setelah berkas `ggml-*.bin` selesai diunduh di sana, kembali ke Kelola Model dan pilih
+**Impor berkas model (.bin)**. Berkas disalin ke folder `models\` dengan nama yang benar,
+dan ukurannya diperiksa agar berkas yang belum lengkap tidak terpakai.
 
 ## Bahasa yang tersedia di GUI
 
@@ -90,9 +131,12 @@ Suarakata/
 ├─ Suarakata.sln
 ├─ Suarakata.csproj
 ├─ app.manifest
-├─ Program.cs        # Entry point + mode CLI
-├─ Transcriber.cs    # Pipeline: unduh model, ffmpeg, Whisper.net
-└─ MainForm.cs       # UI WinForms
+├─ Program.cs            # Entry point + mode CLI
+├─ Transcriber.cs        # Pipeline: ffmpeg + Whisper.net
+├─ ModelManager.cs       # Katalog model + pengunduh jeda/lanjut (HTTP Range)
+├─ ModelManagerForm.cs   # Jendela Kelola Model
+├─ Ui.cs                 # Tema terang/gelap, preferensi, kontrol custom
+└─ MainForm.cs           # UI utama
 ```
 
 ## Troubleshooting
@@ -101,24 +145,58 @@ Suarakata/
 - **Gagal load native / crash saat transkripsi** → pasang VC++ Redistributable x64,
   pastikan CPU mendukung AVX2. Untuk CPU tanpa AVX, ganti paket runtime ke
   `Whisper.net.Runtime.NoAvx`.
-- **Unduhan model lambat** → set `HF_TOKEN`, atau salin file `ggml-*.bin` secara
-  manual ke folder `models\`.
+- **Unduhan model terputus** → buka Kelola Model dan klik **Lanjutkan**; unduhan
+  diteruskan dari byte terakhir, tidak mengulang dari nol.
+- **Unduhan sangat lambat** → pakai **Unduh lewat browser** lalu **Impor berkas model**,
+  atau salin `ggml-*.bin` secara manual ke folder `models\`.
 - **Hasil kurang akurat** → gunakan model lebih besar (`medium` / `large-v3`).
 
 ## Distribusi (installer)
 
-Untuk mengemas aplikasi ke komputer lain:
+Installer dibuat dengan [Inno Setup 6](https://jrsoftware.org/isdl.php):
 
-1. Jalankan `build-release.ps1` (build Release + salin `ffmpeg.exe` ke `bin\Release`).
-2. Buat installer dengan [Inno Setup](https://jrsoftware.org/isdl.php):
-   ```powershell
-   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\installer\Suarakata.iss
-   ```
-   Hasil: `installer\Output\Suarakata-Setup-1.0.0.exe`.
+```powershell
+powershell -ExecutionPolicy Bypass -File .uild-release.ps1
+```
 
-Alternatif tanpa installer: cukup **zip seluruh isi `bin\Release`** (termasuk
-`Suarakata.exe`, `ffmpeg.exe`, folder `runtimes\`, dan `*.dll`) lalu ekstrak di
-komputer tujuan. Model `ggml-*.bin` akan diunduh otomatis saat pertama dipakai.
+Skrip ini melakukan build Release, menyalin `ffmpeg.exe` ke `bin\Release`, lalu memanggil
+`ISCC.exe` bila Inno Setup terpasang (dicari di Program Files maupun
+`%LocalAppData%\Programs\Inno Setup 6`). Hasilnya:
+
+```
+installer\Output\Suarakata-Setup-1.2.1.exe
+```
+
+Untuk mengompilasi installer saja:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\installer\Suarakata.iss
+```
+
+Isi paket: `Suarakata.exe`, `Suarakata.exe.config`, `ffmpeg.exe`, seluruh `*.dll`,
+`runtimes\win-x64\`, `README.md`, dan `LICENSE.txt`. Runtime Linux/macOS serta
+win-x86/win-arm64 dari paket NuGet sengaja tidak disertakan.
+
+> Ukuran installer sekitar 59 MB dan hampir seluruhnya berasal dari `ffmpeg.exe`
+> (build statis penuh). Bila ingin paket lebih kecil, ganti `bin\Releasefmpeg.exe`
+> dengan build "essentials" sebelum mengompilasi installer.
+
+### Lokasi model setelah dipasang
+
+Model disimpan di folder `models\` di samping executable bila folder itu bisa ditulis
+(mode portable). Karena installer memasang aplikasi ke Program Files yang hanya bisa
+dibaca, model otomatis pindah ke:
+
+```
+%LocalAppData%\Suarakata\models
+```
+
+Folder yang sedang dipakai selalu ditampilkan di bagian bawah jendela Kelola Model.
+Model yang diletakkan manual di folder aplikasi tetap ikut terbaca.
+
+Alternatif tanpa installer: **zip seluruh isi `bin\Release`** (termasuk `Suarakata.exe`,
+`ffmpeg.exe`, folder `runtimes\`, dan `*.dll`) lalu ekstrak di komputer tujuan. Dalam
+mode ini model tersimpan di `models\` di samping executable.
 
 > Catatan lisensi: `ffmpeg.exe` yang dibundel mengikuti lisensi build-nya
 > (LGPL/GPL). Sertakan pemberitahuan lisensi ffmpeg bila mendistribusikan.
